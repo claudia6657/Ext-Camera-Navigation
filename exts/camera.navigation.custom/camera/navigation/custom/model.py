@@ -22,8 +22,8 @@ class ExtensionModel():
         print(cam_path)
         omni.kit.commands.execute("CreatePrimCommand", prim_type='Camera', prim_path=cam_path)
         stage = omni.usd.get_context().get_stage()
-        return cam_path, stage.GetPrimAtPath(cam_path)
-    
+        return cam_path, stage.GetPrimAtPath(cam_path)        
+        
     def scope_is_exist(self, path):
         stage = omni.usd.get_context().get_stage()
         scope_prim = stage.GetPrimAtPath(path)
@@ -43,19 +43,16 @@ class ExtensionModel():
         else:
             return newpath
     
-    def delete_animationData(self, x, y, btn, m):
+    def delete_animationData(self):
         del_camera = self.controller.selected_cam
         data = del_camera + '/animationData'
         stage = omni.usd.get_context().get_stage()
         prim = stage.GetPrimAtPath(data)
         if prim:
             omni.kit.commands.execute("DeletePrims", paths=[data])
+            
+        return True
         
-        # Delete Thumbnails
-        f = self.controller.thumbFolderPath + '/' + del_camera.split('/')[-1]
-        tbs = os.listdir(f)
-        for tb in tbs:
-            os.remove(f + '/' + tb)
     #======================================================================================
     # Treeview Data
     #======================================================================================

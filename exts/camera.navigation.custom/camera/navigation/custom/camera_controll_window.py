@@ -3,7 +3,7 @@ import omni.usd
 from .style import ImageAndTextButton, common_style
 import os
 from pathlib import Path
-from PIL import ImageGrab
+from functools import partial
 from omni.kit.viewport.utility import get_active_viewport, get_active_viewport_window
 
 from .model import ExtensionModel
@@ -58,6 +58,12 @@ class CamModel(ui.AbstractItemModel):
         self._item_changed(None)
 
 class CamDelegate(ui.AbstractItemDelegate):
+    def __init__(self, f_args, *args):
+        super().__init__()
+        self.on_mouse_pressed = f_args
+        self.on_mouse_play = args[0]
+        self.on_mouse_delData = args[1]
+        # print(self.on_mouse_play)
     
     def build_widget(self, model, item, column_id, level, expanded):
         # TreeView Widget
@@ -81,7 +87,7 @@ class CamDelegate(ui.AbstractItemDelegate):
                             height=30,
                             image_url = os.path.join(Path(filepath).parent.parent.parent, 'data') + "/Add_Key.svg",
                             tooltip='Add Keyframes',
-                            mouse_pressed_fn=ExtensionUI.on_click_add_keyframe,
+                            mouse_pressed_fn=self.on_mouse_pressed,
                         )
                         ui.Button(
                             "",
@@ -89,6 +95,7 @@ class CamDelegate(ui.AbstractItemDelegate):
                             height=30,
                             image_url = os.path.join(Path(filepath).parent.parent.parent, 'data') + "/play_.svg",
                             tooltip='Play',
+                            mouse_pressed_fn=self.on_mouse_play,
                         )
                         ui.Button(
                             "",
@@ -96,6 +103,7 @@ class CamDelegate(ui.AbstractItemDelegate):
                             height=30,
                             image_url = os.path.join(Path(filepath).parent.parent.parent, 'data') + "/Delete.svg",
                             tooltip='DELETE All Keyframes',
+                            mouse_pressed_fn=self.on_mouse_delData
                         )
             if column_id == 2:
                 value_model = model.get_item_value_model(item, column_id)
@@ -115,6 +123,7 @@ class ExtensionUI():
         self.datafilepath =  os.path.join(Path(filepath).parent.parent.parent, 'data')
         self.thumbFolderPath = self.datafilepath + '/thumbnails'
         self.selected_cam = None
+        self.selected_cam_name = None
         self.build_controll_window()
         
     def build_controll_window(self):
@@ -133,13 +142,11 @@ class ExtensionUI():
                 with self.camera_header:
                     self.build_camera_treeview()
                     self.add_block()
-                    self.build_page_keyframes()
-                    self.keyframe_view.visible = False
 
     def build_camera_treeview(self):
         self.camStack = self._model.get_camera_data()
         self.camModel = CamModel(self.camStack)
-        self.camDel = CamDelegate()
+        self.camDel = CamDelegate(self.on_click_add_keyframe, self._on_click_play, self.on_click_del_animData)
         self.camera_frame = ui.ScrollingFrame(
             horizontal_scrollbar_policy=ui.ScrollBarPolicy.SCROLLBAR_ALWAYS_OFF,
             vertical_scrollbar_policy=ui.ScrollBarPolicy.SCROLLBAR_AS_NEEDED,
@@ -154,7 +161,6 @@ class ExtensionUI():
                     selection_changed_fn=self.on_treeview_selection_changed,
                 )
                 treeview.column_widths = [ui.Fraction(1), ui.Pixel(0), ui.Pixel(100), ui.Pixel(100)]
-                treeview.set_mouse_double_clicked_fn(self.on_treeview_double_clicked)
     
     def add_block(self):
         self.add_cam = ui.ScrollingFrame(
@@ -169,59 +175,18 @@ class ExtensionUI():
                 ui.Image(self.datafilepath + "/add.svg", width=18)
                 ui.Label("New Camera", name="AddLabel")
                 ui.Spacer()
-    
-    def build_page_keyframes(self):
-        self.keyframe_view = ui.VStack(height=ui.Percent(100))
-        with self.keyframe_view:
-            with ui.HStack(height=30, width=ui.Percent(100)):
-                with ui.HStack(style={"margin_width":5}, alignment=ui.Alignment.RIGHT_CENTER):
-                    ui.Button(
-                        "",
-                        width=30,
-                        height=30,
-                        mouse_pressed_fn=self._model.delete_animationData,
-                        image_url = self.datafilepath + "/Delete.svg",
-                        tooltip='DELETE All Keyframes',
-                    )
-                ui.Spacer(width=5)
-            ui.Spacer(height=5)
-            
-            self.build_keyframe_block()
-            
-    def build_keyframe_block(self):      
-        self.keyframeModel = KeyframeModel(self._model.get_keyframe_data())
-        self.keyDel = KeyframeDelegate()
-        self.keyframeBlock = ui.ScrollingFrame(
-            height=ui.Percent(100), name='keyframe', visible = True,
-            horizontal_scrollbar_policy=ui.ScrollBarPolicy.SCROLLBAR_ALWAYS_OFF,
-            vertical_scrollbar_policy=ui.ScrollBarPolicy.SCROLLBAR_AS_NEEDED,
-        )
-        with self.keyframeBlock:
-            with ui.VStack(height=ui.Percent(100)):    
-                treeview = ui.TreeView(
-                    self.keyframeModel, 
-                    root_visible=False,
-                    header_visible=False,
-                    delegate=self.keyDel
-                )
-                treeview.column_widths = [ui.Pixel(0), ui.Fraction(1)]        
-                    
+     
     def on_treeview_selection_changed(self, selected_items):
         # Change Selected Camera and active
         for item in selected_items:
             path = item.prim_model.as_string
             self.selected_cam = path
+            self.selected_cam_name = path.split('/')[-1]
             
             ctx = omni.usd.get_context()
             selection = ctx.get_selection().set_selected_prim_paths([path], True)
             viewport = get_active_viewport()
             viewport.camera_path = path
-
-    def on_treeview_double_clicked(self, x, y, btn, m):
-        if btn == 0:
-            self.camera_frame.visible = False
-            self.add_cam.visible = False
-            self.keyframe_view.visible = True
                 
     def on_click_add_camera(self, x, y, btn, m):
         # Click To Add Camera
@@ -230,32 +195,41 @@ class ExtensionUI():
             self.camStack.insert(0, camPrim.GetName())
             self.camStack.insert(1, camPath)
             self.camStack.insert(2, 0)
+            self.camStack.insert(3, "")
             
             self.camModel.on_changed(self.camStack)
     
-    def on_click_add_keyframe(self, a, b, c):
-        # Keyframe Timeline
-        print(a, b, c)
-        timelineInterface = omni.timeline.get_timeline_interface()
-        current_time = int(timelineInterface.get_current_time() * timelineInterface.get_time_codes_per_seconds())
-        '''
-        fPath = self.thumbFolderPath + '/' + self.selected_cam.split('/')[-1]
-        if not self._model.scope_is_exist(fPath):
-            os.mkdir(fPath)
-        savePath =  fPath + '/'+ str(current_time) + '.png'
-        # Screenshot & Save
-        minPos = min([get_active_viewport_window().width, get_active_viewport_window().height])
-        region = (100, 100, minPos-100, minPos-100)
-        img = ImageGrab.grab(region)
-        img.save(savePath)
-        '''
-        # Add keyframe
-        print(self, current_time)
-        omni.kit.commands.execute("SetAnimCurveKeys", paths=[self.selected_cam], time=current_time)
-        
-        # Refresh
-        #self.keyframeModel.on_changed(self._model.get_keyframe_data())
+    # CLICK ADD KEYFEAME BUTTON
+    def on_click_add_keyframe(self, x, y, btn, m):
+        if btn == 0:
+            # Keyframe Timeline
+            timelineInterface = omni.timeline.get_timeline_interface()
+            current_time = int(timelineInterface.get_current_time() * timelineInterface.get_time_codes_per_seconds())
+            # Add keyframe
+            print(self.selected_cam_name, current_time)
+            omni.kit.commands.execute("SetAnimCurveKeys", paths=[self.selected_cam], time=current_time)
+            self.add_keyframe_model()
     
+    def add_keyframe_model(self):
+        index = self.camStack.index(self.selected_cam_name)
+        self.camStack[index+2] += 1 
+        
+        # on change
+        self.camModel.on_changed(self.camStack)
+    
+    # Clicked Play Button
+    def _on_click_play(self, x, y, btn, m):
+        if btn == 0:
+            timeline = omni.timeline.get_timeline_interface()
+            if timeline.is_playing():
+                timeline.stop()
+            omni.timeline.get_timeline_interface().play()
+    
+    # Clicked Del AnimData
+    def on_click_del_animData(self, x, y, btn, m):
+        if btn == 0:
+            self._model.delete_animationData()
+        
     def shutdown(self):
         self.controller = None
         self.datafilepath =  None
